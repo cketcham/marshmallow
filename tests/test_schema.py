@@ -2493,3 +2493,24 @@ class TestStrictDefault:
 
     def test_meta_false_init_false(self):
         assert self.SchemaFalseByMeta(strict=False).strict is False
+
+def test_invoke_field_validators_handles_none_data():
+    class MySchema(Schema):
+        name = fields.Str(required=True)
+        email = fields.Email()
+
+        @validates('email')
+        def validate_email(self, value):
+            if not value or "@" not in value:
+                raise ValidationError('Invalid email address.')
+
+    schema = MySchema()
+    # Simulate the case where 'data' is None
+    data = None
+    # Validate without raising the TypeError: 'NoneType' object is not subscriptable
+    errors = schema.validate(data)
+    # Assert that the required validation for 'name' is triggered
+    assert 'name' in errors
+    assert errors['name'] == ['Missing data for required field.']
+    # Assert that the custom validation for 'email' is not triggered, as 'data' is None
+    assert 'email' not in errors
