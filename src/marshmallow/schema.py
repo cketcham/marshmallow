@@ -861,22 +861,38 @@ class BaseSchema(base.SchemaABC):
         return data
 
     def _invoke_field_validators(self, unmarshal, data, many):
-        for attr_name in self.__processors__[(VALIDATES, False)]:
-            validator = getattr(self, attr_name)
-            validator_kwargs = validator.__marshmallow_kwargs__[(VALIDATES, False)]
-            field_name = validator_kwargs['field_name']
+        if data is not None:
+            for attr_name in self.__processors__[(VALIDATES, False)]:
+                validator = getattr(self, attr_name)
+                validator_kwargs = validator.__marshmallow_kwargs__[(VALIDATES, False)]
+                field_name = validator_kwargs['field_name']
 
-            try:
-                field_obj = self.fields[field_name]
-            except KeyError:
-                if field_name in self.declared_fields:
-                    continue
-                raise ValueError('"{0}" field does not exist.'.format(field_name))
+                try:
+                    field_obj = self.fields[field_name]
+                except KeyError:
+                    if field_name in self.declared_fields:
+                        continue
+                    raise ValueError('"{0}" field does not exist.'.format(field_name))
 
-            if many:
-                for idx, item in enumerate(data):
+                if many:
+                    for idx, item in enumerate(data):
+                        try:
+                            value = item[field_obj.attribute or field_name]
+                        except KeyError:
+                            pass
+                        else:
+                            validated_value = unmarshal.call_and_store(
+                                getter_func=validator,
+                                data=value,
+                                field_name=field_obj.load_from or field_name,
+                                field_obj=field_obj,
+                                index=(idx if self.opts.index_errors else None)
+                            )
+                            if validated_value is missing:
+                                data[idx].pop(field_name, None)
+                else:
                     try:
-                        value = item[field_obj.attribute or field_name]
+                        value = data[field_obj.attribute or field_name]
                     except KeyError:
                         pass
                     else:
@@ -884,25 +900,10 @@ class BaseSchema(base.SchemaABC):
                             getter_func=validator,
                             data=value,
                             field_name=field_obj.load_from or field_name,
-                            field_obj=field_obj,
-                            index=(idx if self.opts.index_errors else None)
+                            field_obj=field_obj
                         )
                         if validated_value is missing:
-                            data[idx].pop(field_name, None)
-            else:
-                try:
-                    value = data[field_obj.attribute or field_name]
-                except KeyError:
-                    pass
-                else:
-                    validated_value = unmarshal.call_and_store(
-                        getter_func=validator,
-                        data=value,
-                        field_name=field_obj.load_from or field_name,
-                        field_obj=field_obj
-                    )
-                    if validated_value is missing:
-                        data.pop(field_name, None)
+                            data.pop(field_name, None)
 
     def _invoke_validators(
             self, unmarshal, pass_many, data, original_data, many, field_errors=False):
